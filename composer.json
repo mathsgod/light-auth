@@ -1,0 +1,43 @@
+{
+    "name": "mathsgod/light-auth",
+    "description": "Framework-independent password, TOTP and WebAuthn authentication for PHP 8.3+",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.3",
+        "psr/simple-cache": "^3.0",
+        "psr/clock": "^1.0",
+        "symfony/lock": "^7.4",
+        "spomky-labs/otphp": "^11.3",
+        "web-auth/webauthn-lib": "^5.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0",
+        "symfony/cache": "^7.4",
+        "phpstan/phpstan": "^2.0"
+    },
+    "suggest": {
+        "ext-pdo": "Required for the bundled PDO repositories",
+        "ext-pdo_sqlite": "Required for the SQLite example and integration tests"
+    },
+    "autoload": {
+        "psr-4": {
+            "Light\\Auth\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Light\\Auth\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.3.0"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=512M"
+    }
+}
