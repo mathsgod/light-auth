@@ -24,6 +24,9 @@ final class LoginService
         $key = $this->limiter->loginKey($username, $ip);
         if ($retry = $this->limiter->reserve($key)) return LoginResult::locked($retry);
         $user = $this->users->findByUsername($username);
+        // Use the stored username when the repository resolves an alias to an account.
+        $account = $user->username ?? $username;
+        if ($retry = $this->limiter->reserveAccount($account)) return LoginResult::locked($retry);
         $valid = password_verify($password, $user->passwordHash ?? $this->dummyPasswordHash);
         if (!$user || !$user->passwordHash || !$valid || $user->disabled) return LoginResult::invalid();
         if ($user->passwordExpiresAt !== null && $user->passwordExpiresAt <= $this->clock->now()->getTimestamp()) return LoginResult::expired();
@@ -36,6 +39,7 @@ final class LoginService
             return LoginResult::secondFactor($token);
         }
         $this->limiter->loginSucceeded($key);
+        $this->limiter->accountSucceeded($account);
         return LoginResult::authenticated($user->id);
     }
     public function secondFactor(string $token, #[\SensitiveParameter] string $code, string $ip, string $binding): LoginResult
@@ -47,6 +51,7 @@ final class LoginService
         if ($user->passwordExpiresAt !== null && $user->passwordExpiresAt <= $this->clock->now()->getTimestamp()) return LoginResult::expired();
         if (!$this->totp->verify($user, $code)) return LoginResult::invalid();
         $this->limiter->loginSucceeded($this->limiter->loginKey($data['username'], $ip));
+        $this->limiter->accountSucceeded($user->username);
         return LoginResult::authenticated($user->id);
     }
     private static function binding(string $binding, string $ip): string

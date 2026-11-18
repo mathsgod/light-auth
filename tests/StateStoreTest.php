@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace Light\Auth\Tests;
-use Light\Auth\{AttemptLimiter, Challenges, Policy};
+use Light\Auth\{AttemptLimiter, Challenges, Policy, TotpVerifier, User};
 use Light\Auth\Cache\CacheStateStore;
 use PHPUnit\Framework\TestCase;
 use Psr\SimpleCache\CacheInterface;
@@ -26,9 +26,13 @@ final class StateStoreTest extends TestCase
         mkdir($dir, 0700);
         $cache = new Psr16Cache(new FilesystemAdapter('auth', 0, $dir));
         $state = new CacheStateStore($cache, new LockFactory(new FlockStore($dir)));
-        $policy = new Policy(3, 60, 30);
+        $policy = new Policy(3, 60, 30, accountMaxAttempts: 2);
         $challenges = new Challenges($state, $policy);
         $token = $challenges->issue('test', 'browser', ['userId' => '42']);
+        $clock = new FrozenClock();
+        $secret = 'JBSWY3DPEHPK3PXP';
+        $user = new User('42', 'alice', null, totpSecret: $secret);
+        $code = \OTPHP\TOTP::createFromSecret($secret)->at($clock->timestamp);
         $children = [];
         try {
             for ($i = 0; $i < 8; $i++) {
@@ -40,8 +44,10 @@ final class StateStoreTest extends TestCase
                     $challenges = new Challenges($state, $policy);
                     $limiter = new AttemptLimiter($state, $policy);
                     $reserved = $limiter->reserve('same-user-and-ip') === 0;
+                    $accountReserved = $limiter->reserveAccount('same-account') === 0;
                     $consumed = $challenges->consume($token, 'test', 'browser') !== null;
-                    file_put_contents($dir . '/result-' . $i, json_encode([$reserved, $consumed]));
+                    $totpAccepted = (new TotpVerifier($state, $clock))->verify($user, $code);
+                    file_put_contents($dir . '/result-' . $i, json_encode([$reserved, $consumed, $accountReserved, $totpAccepted]));
                     exit(0);
                 }
                 $children[] = $pid;
@@ -50,14 +56,18 @@ final class StateStoreTest extends TestCase
                 pcntl_waitpid($pid, $status);
                 self::assertSame(0, pcntl_wexitstatus($status));
             }
-            $reserved = $consumed = 0;
+            $reserved = $consumed = $accountReserved = $totpAccepted = 0;
             for ($i = 0; $i < 8; $i++) {
-                [$r, $c] = json_decode(file_get_contents($dir . '/result-' . $i), true);
+                [$r, $c, $a, $t] = json_decode(file_get_contents($dir . '/result-' . $i), true);
                 $reserved += (int) $r;
                 $consumed += (int) $c;
+                $accountReserved += (int) $a;
+                $totpAccepted += (int) $t;
             }
             self::assertSame(3, $reserved);
             self::assertSame(1, $consumed);
+            self::assertSame(2, $accountReserved);
+            self::assertSame(1, $totpAccepted);
         } finally {
             $cache->clear();
             $entries = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST);

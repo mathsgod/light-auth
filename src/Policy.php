@@ -8,9 +8,10 @@ final readonly class Policy
         public int $windowSeconds = 900,
         public int $challengeSeconds = 300,
         public RateLimitScope $scope = RateLimitScope::UsernameIp,
+        public int $accountMaxAttempts = 20,
     )
     {
-        if (min($maxAttempts, $windowSeconds, $challengeSeconds) < 1) {
+        if (min($maxAttempts, $windowSeconds, $challengeSeconds, $accountMaxAttempts) < 1) {
             throw new \InvalidArgumentException('Authentication limits must be positive.');
         }
     }

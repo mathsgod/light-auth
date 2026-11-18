@@ -126,6 +126,8 @@ In IP mode, a correct login or second-factor completion cannot clear attempts ac
 
 Both modes keep rolling expiry, atomic concurrency protection and identical behavior for known/unknown accounts. Blocked requests do not extend expiry. Distinct IPs remain independent. Switching modes uses separate keys; it does not migrate or erase the previous mode's counters. Multiple users behind the same IP share its quota, so choose an appropriate limit for that deployment.
 
+Password login also applies a separate account limit across IPs in both modes. Set `Policy(accountMaxAttempts: 20)` to customize the default of 20 attempts per `windowSeconds`. A password submission reserves one account attempt before verification. That attempt stays counted if TOTP is pending or fails. Completing password login, including TOTP if required, clears the account counter. Unknown usernames receive the same account limit. Discoverable passkey assertions use their existing IP limit.
+
 The legacy static `AttemptLimiter::key()` still produces username/IP keys. Custom login integrations should call the limiter instance's `loginKey()` and `loginSucceeded()` so the policy applies; generic `reserve()`/`clear()` remain available for other limits.
 
 The dummy password hash follows the runtime's `PASSWORD_DEFAULT`. If your stored hashes use different algorithms or costs, supply a matching valid `dummyPasswordHash` to `LoginService`. Identical outward results do not promise constant-time database/cache operations.
@@ -257,3 +259,15 @@ After the application saves the verified record, `WebAuthnService` can immediate
 5. `light-oauth2` continues code/token issuance and scope checks; RBAC remains an independent application integration.
 
 OAuth request state and return destinations belong to that OAuth flow, never to a raw client-supplied redirect accepted by this library. Do not issue OAuth credentials from a pending MFA challenge.
+
+## Public API for 1.x
+
+The 1.0 candidate includes these application-facing APIs:
+
+- `LoginService::password()` and `secondFactor()`, with `LoginResult` and `Status`.
+- `Policy`, `RateLimitScope`, and `PasswordPolicy` for configuring login limits and validating new passwords.
+- `TotpEnrollment::begin()` and `confirm()`, `TotpVerifier::verify()`, `WebAuthnEnrollment::begin()` and `confirm()`, and `WebAuthnService::begin()` and `complete()`, with their request and result objects.
+- `UserRepository`, `CredentialRepository`, `CredentialInventory`, and `StateStore` for application adapters. Credential IDs passed through the repository are binary strings. A state store must serialize read/modify/write operations per key and report storage failures.
+- The documented constructors and methods used to wire the services, including `AttemptLimiter`, `Challenges`, `CacheStateStore`, and the PDO repositories and field mapping.
+
+For these APIs, 1.x will preserve existing signatures, named arguments, defaults and result meanings. Cache key formats, internal state payloads and helper methods outside the documented API may change. Finish pending login and enrollment challenges before swapping versions, or start them again after upgrading.
