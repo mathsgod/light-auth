@@ -21,7 +21,7 @@ final class LoginService
     public function password(string $username, #[\SensitiveParameter] string $password, string $ip, string $binding): LoginResult
     {
         $username = strtolower(trim($username));
-        $key = AttemptLimiter::key($username, $ip);
+        $key = $this->limiter->loginKey($username, $ip);
         if ($retry = $this->limiter->reserve($key)) return LoginResult::locked($retry);
         $user = $this->users->findByUsername($username);
         $valid = password_verify($password, $user->passwordHash ?? $this->dummyPasswordHash);
@@ -35,7 +35,7 @@ final class LoginService
             ]);
             return LoginResult::secondFactor($token);
         }
-        $this->limiter->clear($key);
+        $this->limiter->loginSucceeded($key);
         return LoginResult::authenticated($user->id);
     }
     public function secondFactor(string $token, #[\SensitiveParameter] string $code, string $ip, string $binding): LoginResult
@@ -46,7 +46,7 @@ final class LoginService
         if (!$user || $user->disabled || !hash_equals($data['version'], self::version($user))) return LoginResult::invalid();
         if ($user->passwordExpiresAt !== null && $user->passwordExpiresAt <= $this->clock->now()->getTimestamp()) return LoginResult::expired();
         if (!$this->totp->verify($user, $code)) return LoginResult::invalid();
-        $this->limiter->clear(AttemptLimiter::key($data['username'], $ip));
+        $this->limiter->loginSucceeded($this->limiter->loginKey($data['username'], $ip));
         return LoginResult::authenticated($user->id);
     }
     private static function binding(string $binding, string $ip): string

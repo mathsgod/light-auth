@@ -31,7 +31,7 @@ final class WebAuthnService
     /** @param array<string, mixed> $assertion */
     public function complete(string $token, array $assertion, string $ip, string $binding): LoginResult
     {
-        $key = AttemptLimiter::key('webauthn', $ip);
+        $key = $this->limiter->loginKey('webauthn', $ip);
         if ($retry = $this->limiter->reserve($key)) return LoginResult::locked($retry);
         $data = $this->challenges->consume($token, 'webauthn', $binding);
         if (!$data) return LoginResult::invalid();
@@ -52,7 +52,7 @@ final class WebAuthnService
             $updated = $this->validator->check($record, $credential->response, $options, $this->rpId, null);
         } catch (\Throwable) { return LoginResult::invalid(); }
         if (!$this->credentials->replace($stored, $serializer->serialize($updated, 'json'))) return LoginResult::invalid();
-        $this->limiter->clear($key);
+        $this->limiter->loginSucceeded($key);
         return LoginResult::authenticated($user->id);
     }
 }

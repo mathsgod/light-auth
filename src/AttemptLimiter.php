@@ -7,6 +7,19 @@ final class AttemptLimiter
 {
     public function __construct(private StateStore $store, private Policy $policy, private ClockInterface $clock = new SystemClock()) {}
     public static function key(string $username, string $ip): string { return json_encode([strtolower(trim($username)), $ip], JSON_THROW_ON_ERROR); }
+
+    public function loginKey(string $username, string $ip): string
+    {
+        return $this->policy->scope === RateLimitScope::Ip
+            ? 'ip:' . json_encode($ip, JSON_THROW_ON_ERROR)
+            : self::key($username, $ip);
+    }
+
+    public function loginSucceeded(string $key): void
+    {
+        // An IP quota must survive successful logins to prevent cross-account reset bypasses.
+        if ($this->policy->scope === RateLimitScope::UsernameIp) $this->clear($key);
+    }
     // Reserve before verification so concurrent requests also count toward the limit.
     public function reserve(string $key): int
     {

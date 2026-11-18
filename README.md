@@ -5,7 +5,7 @@ A PHP **8.3+** authentication library prototype. No dependency on Light Framewor
 ## Included
 
 - Password login with account status and optional password expiry.
-- One rolling attempt limit for both known and unknown usernames, scoped by normalized username + caller-supplied IP. Case variants share the same limit.
+- A rolling login limit for both known and unknown usernames, selectable as username + IP lockout or a shared IP rate limit. The default preserves username + IP behavior.
 - TOTP setup and confirmation with expiring browser/user-bound pending secrets, bounded confirmation attempts and application-owned persistence.
 - Two-step password + TOTP login, expiring browser/IP-bound single-use challenges, and TOTP replay protection across IPs.
 - WebAuthn/passkey creation and attestation verification, returning a validated record for application-owned storage.
@@ -99,7 +99,34 @@ if ($result->status === Status::Authenticated) {
 
 Only `Authenticated` contains a user ID. An expired password result is not authentication and cannot be used as authority to reset a password. Disabled users, absent users and incorrect passwords return the same `InvalidCredentials` result. Both existing and nonexistent usernames receive the same limit and `Locked` result with `retryAfter` seconds. A wrong MFA code consumes the pending challenge; start password login again. TOTP accepts the current 30-second step with 6 digits/SHA-1 and prevents its reuse.
 
-Attempts are reserved before verification so parallel requests cannot bypass the threshold. A fully successful login clears that username/IP's attempts. An MFA-pending password attempt remains counted until MFA succeeds. Blocked requests do not append timestamps or extend the rolling lock window.
+Attempts are reserved before verification so parallel requests cannot bypass the threshold. In the default username/IP mode, a fully successful login clears that username/IP's attempts. An MFA-pending password attempt remains counted until MFA succeeds. Blocked requests do not append timestamps or extend the rolling lock window.
+
+### Choose the login rate-limit scope
+
+```php
+use Light\Auth\{Policy, RateLimitScope};
+
+// Default: separate failed/incomplete attempts for each username + IP.
+$policy = new Policy(maxAttempts: 5, windowSeconds: 900,
+    scope: RateLimitScope::UsernameIp);
+
+// One login-submission quota per IP, regardless of username.
+$policy = new Policy(maxAttempts: 20, windowSeconds: 60,
+    scope: RateLimitScope::Ip);
+```
+
+Pass the selected policy to the `AttemptLimiter` shared by your login services. Changing `Policy` alone does not change an already constructed limiter.
+
+| Scope | Aggregation | Successful login |
+| --- | --- | --- |
+| `username_ip` (default) | Username + IP; case variants share a counter | Clears that username/IP counter |
+| `ip` | One IP quota shared across usernames and password/passkey login submissions | Counts toward the quota and never clears it |
+
+In IP mode, a correct login or second-factor completion cannot clear attempts accumulated against other accounts. Password submission reserves one attempt; its subsequent TOTP completion does not reserve a second one. Passkey assertion submission also reserves one attempt. Setup/enrollment limits keep their existing per-user semantics. Options/challenge creation endpoints still need HTTP-level rate limiting.
+
+Both modes keep rolling expiry, atomic concurrency protection and identical behavior for known/unknown accounts. Blocked requests do not extend expiry. Distinct IPs remain independent. Switching modes uses separate keys; it does not migrate or erase the previous mode's counters. Multiple users behind the same IP share its quota, so choose an appropriate limit for that deployment.
+
+The legacy static `AttemptLimiter::key()` still produces username/IP keys. Custom login integrations should call the limiter instance's `loginKey()` and `loginSucceeded()` so the policy applies; generic `reserve()`/`clear()` remain available for other limits.
 
 The dummy password hash follows the runtime's `PASSWORD_DEFAULT`. If your stored hashes use different algorithms or costs, supply a matching valid `dummyPasswordHash` to `LoginService`. Identical outward results do not promise constant-time database/cache operations.
 
