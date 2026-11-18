@@ -38,7 +38,9 @@ The default PDO mapping reads the existing Light-style `User` table:
 | Disabled state | `status` (`0` means active) |
 | TOTP secret | `secret` (null/empty means no TOTP) |
 
-There are **no package migrations**. Constructing an adapter performs no schema writes.
+For a fresh database, apply [MySQL/MariaDB](migrations/mysql.sql) or [SQLite](migrations/sqlite.sql) once using your application's migration tooling. Both create a Light-style `User` table and include the `credential` field for passkeys. Existing applications can map their own tables and columns. Constructing an adapter performs no schema writes.
+
+Store usernames in the application's canonical form before inserting them (the default lookup trims and lowercases the input), and store only the password hash in `password`. The starter schema includes an optional `password_expires_at` Unix timestamp. Enable it with `new UserMapping(passwordExpiresAt: 'password_expires_at')`.
 
 ```php
 use Light\Auth\Pdo\PdoUserRepository;
@@ -188,7 +190,7 @@ use Light\Auth\WebAuthn\WebAuthnService;
 
 $passkeys = new WebAuthnService(
     $users,
-    new PdoCredentialRepository($pdo),
+    new PdoCredentialRepository($pdo, table: 'User', idColumn: 'user_id', credentialColumn: 'credential'),
     $challenges,
     $limiter,
     rpId: 'example.com',
@@ -203,7 +205,7 @@ $result = $passkeys->complete($request->token, $assertion, $ip, $browserBinding)
 
 This is discoverable-credential login: no username-dependent credential list is returned. The existing credential record's user handle is checked by the WebAuthn library. UV is required; a UV-verified passkey is treated as complete login without an additional TOTP step. Password expiry only applies to password login. Adjust this policy before adopting if your application requires TOTP even after passkey verification.
 
-`PdoCredentialRepository` reuses the existing `User.credential` JSON array, including Light's `{uuid, name, credential: {...}}` wrappers. It preserves wrapper metadata and other credentials while persisting counter updates with optimistic concurrency checks. Table, ID column, JSON column and wrapper key are configurable. For a raw array of credential records, use `wrapperKey: null`.
+`PdoCredentialRepository` requires an explicit table, user ID column and credential JSON column. It expects a JSON array of raw credential records by default. For Light Framework's `{uuid, name, credential: {...}}` entries, pass `wrapperKey: 'credential'`. Counter updates preserve wrapper metadata and other credentials using optimistic concurrency checks.
 
 The supplied adapter scans existing JSON arrays to locate a credential, matching the current storage shape. For a large user base, supply an indexed `CredentialRepository` using your existing credential storage. It also implements `CredentialInventory::forUser()` for enrollment exclusion lists; assertion-only repositories do not have to implement this additional interface.
 
@@ -216,7 +218,7 @@ use Light\Auth\WebAuthn\WebAuthnEnrollment;
 
 $enrollment = new WebAuthnEnrollment(
     $users,
-    new PdoCredentialRepository($pdo),
+    new PdoCredentialRepository($pdo, table: 'User', idColumn: 'user_id', credentialColumn: 'credential'),
     $challenges,
     $limiter,
     rpId: 'example.com',

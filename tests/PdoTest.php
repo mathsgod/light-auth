@@ -22,6 +22,20 @@ final class PdoTest extends TestCase
         self::assertNull($repo->findByUsername('missing'));
         self::assertSame(['User'], $this->pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(\PDO::FETCH_COLUMN));
     }
+    public function testStarterSchemaWorksWithBothPdoRepositories(): void
+    {
+        $pdo = new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $pdo->exec(file_get_contents(dirname(__DIR__) . '/migrations/sqlite.sql'));
+        $pdo->exec("INSERT INTO `User` (username, password_expires_at) VALUES ('alice', 1700000000)");
+
+        $users = new PdoUserRepository($pdo, new UserMapping(passwordExpiresAt: 'password_expires_at'));
+        $user = $users->findByUsername(' Alice ');
+        self::assertNotNull($user);
+        self::assertFalse($user->disabled);
+        self::assertSame(1700000000, $user->passwordExpiresAt);
+        self::assertSame([], (new PdoCredentialRepository($pdo, 'User', 'user_id', 'credential'))->forUser($user->id));
+    }
+
     public function testCustomColumnMapping(): void
     {
         $this->pdo->exec('CREATE TABLE members (uuid TEXT, login TEXT, hash TEXT)');
@@ -35,7 +49,7 @@ final class PdoTest extends TestCase
     {
         $payload = [['uuid' => 'keep', 'credential' => ['publicKeyCredentialId' => 'aWQ', 'counter' => 1]]];
         $this->pdo->prepare('UPDATE User SET credential=? WHERE user_id=42')->execute([json_encode($payload)]);
-        $repo = new PdoCredentialRepository($this->pdo);
+        $repo = new PdoCredentialRepository($this->pdo, 'User', 'user_id', 'credential', wrapperKey: 'credential');
         $items = $repo->forUser('42');
         self::assertCount(1, $items);
         self::assertSame('id', $items[0]->id);
@@ -48,7 +62,7 @@ final class PdoTest extends TestCase
     {
         $this->pdo->exec('CREATE TABLE members (uuid TEXT, keys TEXT)');
         $this->pdo->prepare('INSERT INTO members VALUES (?,?)')->execute(['u1', json_encode([['publicKeyCredentialId' => 'aWQ', 'counter' => 1]])]);
-        $repo = new PdoCredentialRepository($this->pdo, 'members', 'uuid', 'keys', null);
+        $repo = new PdoCredentialRepository($this->pdo, 'members', 'uuid', 'keys');
         self::assertSame('id', $repo->forUser('u1')[0]->id);
         self::assertSame('u1', $repo->forUser('u1')[0]->userId);
     }
@@ -61,7 +75,7 @@ final class PdoTest extends TestCase
     {
         $payload = [['uuid' => 'keep-me', 'name' => 'My passkey', 'credential' => ['publicKeyCredentialId' => 'aWQ', 'counter' => 1]], ['uuid' => 'other', 'credential' => ['publicKeyCredentialId' => 'b3RoZXI', 'counter' => 9]]];
         $this->pdo->prepare('UPDATE User SET credential=?')->execute([json_encode($payload)]);
-        $repo = new PdoCredentialRepository($this->pdo);
+        $repo = new PdoCredentialRepository($this->pdo, 'User', 'user_id', 'credential', wrapperKey: 'credential');
         $before = $repo->find('id');
         self::assertSame('42', $before->userId);
         self::assertNull($repo->find('missing'));

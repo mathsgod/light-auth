@@ -9,10 +9,10 @@ final class PdoCredentialRepository implements CredentialInventory
 {
     public function __construct(
         private \PDO $pdo,
-        private string $table = 'User',
-        private string $idColumn = 'user_id',
-        private string $credentialColumn = 'credential',
-        private ?string $wrapperKey = 'credential',
+        private string $table,
+        private string $idColumn,
+        private string $credentialColumn,
+        private ?string $wrapperKey = null,
     ) {
         UserMapping::quote($table);
         UserMapping::quote($idColumn);
